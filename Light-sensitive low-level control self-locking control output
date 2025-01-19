@@ -1,6 +1,6 @@
 #include <STC8G.h>
 #include <intrins.h>
-//光敏低电平控制自锁控制输出
+//光敏低电平控制自锁控制输出，高电平受控，有一个BUG，必须要有上升沿和下降沿才能正常工作
 // 延时函数
 void delay(unsigned int ms) {
     unsigned int i, j;
