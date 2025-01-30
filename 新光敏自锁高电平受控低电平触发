@@ -1,0 +1,109 @@
+#include <STC8G.h>
+
+// 继电器状态标志
+bit relay_state = 0;
+// P5.5 状态标志
+bit p55_state = 0;
+// 新增全局变量
+unsigned int p55_timer = 0;
+bit p55_counting = 0;
+bit p54_control_valid = 0;
+
+// 初始化GPIO
+void GPIO_Init(void) {
+    // 设置P5.4为标准双向口
+    P5M1 &= ~0x10;
+    P5M0 &= ~0x10;
+    // 设置P5.5为标准双向口
+    P5M1 &= ~0x20;
+    P5M0 &= ~0x20;
+    // 设置P3.3为输出模式
+    P3M1 &= ~0x08;
+    P3M0 &= ~0x08;
+
+    P33 = 0; // 默认设置P3.3为低电平，继电器关闭
+}
+
+// 控制继电器开
+void Relay_On(void) {
+    P33 = 1;
+}
+
+// 控制继电器关
+void Relay_Off(void) {
+    P33 = 0;
+}
+
+// 定时器0初始化（1ms中断）
+void Timer0_Init(void) {
+    AUXR |= 0x80;       // 定时器0为1T模式
+    TMOD &= 0xF0;       // 清除配置
+    TL0 = 0xCD;         // 初始值
+    TH0 = 0xD4;         // 1ms @24MHz
+    ET0 = 1;            // 使能中断
+    TR0 = 1;            // 启动定时器
+    EA = 1;             // 全局中断使能
+}
+
+// 定时器0中断服务程序
+void Timer0_ISR() interrupt 1 {
+    if (p55_counting) {
+        p55_timer++;
+        if (p55_timer >= 10000) { // 10秒
+            p55_counting = 0;
+            p54_control_valid = 1; // 允许P5.4控制
+        }
+    }
+}
+
+// 传感器检测与逻辑控制
+void Check_Sensor(void) {
+    bit current_p55_state = (P5 & 0x20)? 1 : 0;
+    static bit last_p54 = 1;
+    static unsigned int debounce_timer = 0;
+    bit current_p54 = (P5 & 0x10)? 1 : 0;
+
+    // 检测P5.5状态变化
+    if (current_p55_state != p55_state) {
+        if (current_p55_state == 1) { // 上升沿
+            p55_counting = 1;
+            p55_timer = 0;
+        }
+        else { // 下降沿
+            p54_control_valid = 0;
+            Relay_Off();
+            p55_counting = 0;
+        }
+        p55_state = current_p55_state;
+    }
+
+    // P5.4控制逻辑（非阻塞消抖）
+    if (p54_control_valid && (current_p54 != last_p54)) {
+        debounce_timer = 0; // 开始消抖计时
+    }
+
+    if (debounce_timer < 0xFFFF) {
+        debounce_timer++;
+    }
+
+    if (debounce_timer >= 2) { // 2ms消抖
+        if (current_p54 != last_p54) {
+            last_p54 = current_p54;
+            if (current_p54 == 0) { // 下降沿切换继电器
+                if (relay_state) Relay_Off();
+                else Relay_On();
+                relay_state =!relay_state;
+            }
+        }
+        debounce_timer = 0; // 重置计时
+    }
+}
+
+// 主函数
+void main() {
+    GPIO_Init();
+    Timer0_Init();
+    while (1) {
+        Check_Sensor();
+    }
+}
