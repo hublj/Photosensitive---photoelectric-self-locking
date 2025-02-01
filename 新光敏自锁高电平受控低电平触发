@@ -1,5 +1,5 @@
 #include <STC8G.h>
-
+//24MHZ,1MS
 // 继电器状态标志
 bit relay_state = 0;
 // P5.5 状态标志
